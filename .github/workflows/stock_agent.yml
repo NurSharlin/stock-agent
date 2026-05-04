@@ -25,7 +25,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           LANGUAGE: "Hebrew"
           MODE: ${{ github.event.schedule == '30 13 * * 1-5' && 'report' || 'listen' }}
