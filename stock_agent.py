@@ -27,7 +27,7 @@ def get_stock_data():
 def get_claude_analysis(stock_summary):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=400,
         messages=[{
             "role": "user",
