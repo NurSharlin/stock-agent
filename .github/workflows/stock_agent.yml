@@ -2,8 +2,7 @@ name: Daily Stock Agent
 
 on:
   schedule:
-    - cron: '0 12 * * 1-5'  # 1:30 PM UTC = ~8:30 AM ET, weekdays only
-    - cron: '*/15 * * * *'     # Check for buy/sell messages every 15 min
+    - cron: '0 12 * * 1-5'   # Weekdays at 12:00 UTC (2pm Israel time)
   workflow_dispatch:
 
 jobs:
@@ -25,8 +24,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           LANGUAGE: "Hebrew"
-          MODE: ${{ github.event.schedule == '30 13 * * 1-5' && 'report' || 'listen' }}
         run: python stock_agent.py
