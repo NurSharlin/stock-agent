@@ -5,7 +5,6 @@ import base64
 import requests
 from flask import Flask, request
 
-# Force logs to appear immediately
 sys.stdout.reconfigure(line_buffering=True)
 
 app = Flask(__name__)
@@ -21,25 +20,32 @@ def get_watchlist():
     headers = {"Authorization": f"token {MY_GITHUB_TOKEN}"}
     r = requests.get(url, headers=headers).json()
     content = base64.b64decode(r["content"]).decode()
-    return json.loads(content), r["sha"]
+    sha = r["sha"]
+    return json.loads(content), sha
 
 def save_watchlist(watchlist, sha):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{WATCHLIST_FILE}"
-    headers = {"Authorization": f"token {MY_GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    headers = {
+        "Authorization": f"token {MY_GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
     content = base64.b64encode(json.dumps(watchlist, indent=2).encode()).decode()
-    requests.put(url, headers=headers, json={
+    response = requests.put(url, headers=headers, json={
         "message": "Update watchlist",
         "content": content,
         "sha": sha
     })
+    print(f"💾 GitHub save status: {response.status_code}", flush=True)
+    print(f"💾 GitHub response: {response.json()}", flush=True)
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={
+    r = requests.post(url, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
     })
+    print(f"📤 Telegram send status: {r.status_code} | Response: {r.text}", flush=True)
 
 @app.route("/")
 def home():
@@ -54,41 +60,38 @@ def webhook():
     text = msg.get("text", "").strip().upper()
     chat_id = str(msg.get("chat", {}).get("id", ""))
 
-    print(f"💬 Text: '{text}' | Incoming ID: '{chat_id}' | Expected: '{TELEGRAM_CHAT_ID}'", flush=True)
-
     if chat_id != str(TELEGRAM_CHAT_ID):
-        print("❌ Chat ID mismatch — ignoring", flush=True)
+        print(f"❌ Ignoring message from unknown chat: {chat_id}", flush=True)
         return "ok"
 
     watchlist, sha = get_watchlist()
-    print(f"📋 Watchlist: {watchlist}", flush=True)
-    changed = False
+    print(f"📋 Current watchlist: {watchlist}", flush=True)
 
-    if any(text.startswith(a) for a in ["BUY", "BOUGHT"]):
-        ticker = text.split()[-1]
+    words = text.split()
+    command = words[0] if words else ""
+    ticker = words[1] if len(words) > 1 else ""
+
+    if command in ["BUY", "BOUGHT"] and ticker:
         if ticker not in watchlist:
             watchlist.append(ticker)
-            changed = True
+            save_watchlist(watchlist, sha)
             send_telegram(f"✅ Added *{ticker}* to your watchlist!\nCurrent list: {', '.join(watchlist)}")
         else:
             send_telegram(f"ℹ️ *{ticker}* is already in your watchlist.")
 
-    elif any(text.startswith(a) for a in ["SELL", "SOLD"]):
-        ticker = text.split()[-1]
+    elif command in ["SELL", "SOLD"] and ticker:
         if ticker in watchlist:
             watchlist.remove(ticker)
-            changed = True
+            save_watchlist(watchlist, sha)
             send_telegram(f"🗑️ Removed *{ticker}* from your watchlist.\nCurrent list: {', '.join(watchlist)}")
         else:
             send_telegram(f"ℹ️ *{ticker}* wasn't in your watchlist.")
 
-    elif text == "LIST":
+    elif command == "LIST":
         send_telegram(f"📋 Your current watchlist:\n{', '.join(watchlist)}")
 
-    if changed:
-        print("💾 Saving to GitHub...", flush=True)
-        save_watchlist(watchlist, sha)
-        print("✅ Saved!", flush=True)
+    else:
+        send_telegram("❓ Unknown command. Try:\n*BUY AAPL* — add a stock\n*SELL AAPL* — remove a stock\n*LIST* — see your watchlist")
 
     return "ok"
 
