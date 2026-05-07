@@ -12,6 +12,14 @@ MY_GITHUB_TOKEN = os.environ["MY_GITHUB_TOKEN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 WATCHLIST_FILE = "watchlist.json"
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    msg = data.get("message", {})
+    chat_id = str(msg.get("chat", {}).get("id", ""))
+    print(f"INCOMING CHAT ID: '{chat_id}'")
+    print(f"EXPECTED CHAT ID: '{TELEGRAM_CHAT_ID}'")
+
 def get_watchlist():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{WATCHLIST_FILE}"
     headers = {"Authorization": f"token {MY_GITHUB_TOKEN}"}
