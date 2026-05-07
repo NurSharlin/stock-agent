@@ -73,7 +73,7 @@ def get_news_update(watchlist):
         "content": (
             f"Search for the latest news today for these stocks: {tickers}. "
             f"For each stock, give one short sentence about the most important recent news or development. "
-            f"Format as a simple list. Be very concise. Respond in Hebrew."
+            f"Format as a simple list. Be very concise."
         )
     }]
 
@@ -90,7 +90,7 @@ def get_news_update(watchlist):
                 block["text"] for block in content_blocks
                 if block.get("type") == "text"
             )
-            return text if text else "לא נמצאו חדשות."
+            return text if text else "There is no news."
 
         # Otherwise Claude used a tool — add its response to messages and continue
         # Add assistant's response to message history
@@ -155,9 +155,9 @@ def webhook():
         send_telegram(f"📋 Your current watchlist:\n{', '.join(watchlist)}")
 
     elif command == "UPDATE":
-        send_telegram("🔍 מחפש חדשות עדכניות, רגע...")
+        send_telegram("🔍 Hold on, searching for news...")
         news = get_news_update(watchlist)
-        send_telegram(f"📰 *עדכון חדשות:*\n\n{news}")
+        send_telegram(f"📰 *News Update:*\n\n{news}")
 
     else:
         send_telegram(
