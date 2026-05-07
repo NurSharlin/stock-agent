@@ -47,40 +47,69 @@ def send_telegram(message):
     })
     print(f"📤 Telegram send status: {r.status_code}", flush=True)
 
-def get_news_update(watchlist):
-    """Use Claude with web search to get latest news for each stock."""
-    tickers = ", ".join(watchlist)
-
+def call_claude(messages):
+    """Call Claude API and return the full response data."""
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
             "x-api-key": ANTHROPIC_API_KEY,
             "anthropic-version": "2023-06-01",
-            "anthropic-beta": "interleaved-thinking-2025-01-10",
             "content-type": "application/json"
         },
         json={
             "model": "claude-sonnet-4-5",
             "max_tokens": 1024,
             "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-            "messages": [{
-                "role": "user",
-                "content": (
-                    f"Search for the latest news today for these stocks: {tickers}. "
-                    f"For each stock, give one short sentence about the most important recent news or development. "
-                    f"Format as a simple list. Be very concise. Respond in Hebrew."
-                )
-            }]
+            "messages": messages
         }
     )
+    return response.json()
 
-    data = response.json()
-    # Extract all text blocks from the response (web search returns multiple content blocks)
-    full_text = " ".join(
-        block["text"] for block in data.get("content", [])
-        if block.get("type") == "text"
-    )
-    return full_text if full_text else "לא נמצאו חדשות."
+def get_news_update(watchlist):
+    """Use Claude with web search in an agentic loop until it returns a final text answer."""
+    tickers = ", ".join(watchlist)
+    messages = [{
+        "role": "user",
+        "content": (
+            f"Search for the latest news today for these stocks: {tickers}. "
+            f"For each stock, give one short sentence about the most important recent news or development. "
+            f"Format as a simple list. Be very concise. Respond in Hebrew."
+        )
+    }]
+
+    # Agentic loop — keep going until stop_reason is "end_turn" (no more tool calls)
+    for _ in range(5):  # max 5 iterations to avoid infinite loop
+        data = call_claude(messages)
+        print(f"🤖 Claude response stop_reason: {data.get('stop_reason')}", flush=True)
+
+        content_blocks = data.get("content", [])
+
+        # If Claude is done, extract and return the final text
+        if data.get("stop_reason") == "end_turn":
+            text = " ".join(
+                block["text"] for block in content_blocks
+                if block.get("type") == "text"
+            )
+            return text if text else "לא נמצאו חדשות."
+
+        # Otherwise Claude used a tool — add its response to messages and continue
+        # Add assistant's response to message history
+        messages.append({"role": "assistant", "content": content_blocks})
+
+        # Collect all tool results and add as a single user message
+        tool_results = []
+        for block in content_blocks:
+            if block.get("type") == "tool_use":
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block["id"],
+                    "content": block.get("content", "")
+                })
+
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
+
+    return "לא הצלחתי למצוא חדשות כרגע."
 
 @app.route("/")
 def home():
