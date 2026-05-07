@@ -1,16 +1,12 @@
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-    msg = data.get("message", {})
-    chat_id = str(msg.get("chat", {}).get("id", ""))
-    print(f"INCOMING CHAT ID: '{chat_id}'")
-    print(f"EXPECTED CHAT ID: '{TELEGRAM_CHAT_ID}'")
-
 import os
+import sys
 import json
 import base64
 import requests
 from flask import Flask, request
+
+# Force logs to appear immediately
+sys.stdout.reconfigure(line_buffering=True)
 
 app = Flask(__name__)
 
@@ -45,17 +41,27 @@ def send_telegram(message):
         "parse_mode": "Markdown"
     })
 
-@app.route(f"/webhook", methods=["POST"])
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
+    print(f"📩 Received: {json.dumps(data)}", flush=True)
+
     msg = data.get("message", {})
     text = msg.get("text", "").strip().upper()
     chat_id = str(msg.get("chat", {}).get("id", ""))
 
+    print(f"💬 Text: '{text}' | Incoming ID: '{chat_id}' | Expected: '{TELEGRAM_CHAT_ID}'", flush=True)
+
     if chat_id != str(TELEGRAM_CHAT_ID):
+        print("❌ Chat ID mismatch — ignoring", flush=True)
         return "ok"
 
     watchlist, sha = get_watchlist()
+    print(f"📋 Watchlist: {watchlist}", flush=True)
     changed = False
 
     if any(text.startswith(a) for a in ["BUY", "BOUGHT"]):
@@ -80,10 +86,12 @@ def webhook():
         send_telegram(f"📋 Your current watchlist:\n{', '.join(watchlist)}")
 
     if changed:
+        print("💾 Saving to GitHub...", flush=True)
         save_watchlist(watchlist, sha)
+        print("✅ Saved!", flush=True)
 
     return "ok"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
