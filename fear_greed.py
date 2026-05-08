@@ -9,6 +9,7 @@ MY_GITHUB_TOKEN = os.environ["MY_GITHUB_TOKEN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 STATE_FILE = "fear_greed_state.json"
 
+
 # Map normalized lowercase keys to display labels + emojis
 CATEGORY_MAP = {
     "extreme fear":  ("Extreme Fear",  "😱"),
