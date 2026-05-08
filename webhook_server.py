@@ -16,6 +16,8 @@ GITHUB_REPO = os.environ["GITHUB_REPO"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 WATCHLIST_FILE = "watchlist.json"
 
+MAGNIFICENT_SEVEN = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
+
 HELP_MESSAGE = (
     "🤖 *Stock Agent — Commands*\n\n"
     "📋 *LIST* — see your current watchlist\n\n"
@@ -30,6 +32,33 @@ HELP_MESSAGE = (
     "• 📈 Daily stock report every weekday morning\n"
     "• 😱 Fear & Greed index alert when sentiment changes"
 )
+
+NEWS_SYSTEM_PROMPT = """You are a professional financial analyst assistant. You monitor and analyze market news for two groups of companies.
+
+GROUP 1 — Personal Portfolio (HIGH PRIORITY):
+- These are the user's personal holdings. Provide DETAILED analysis.
+- Report on ANY news, even minor price movements or small developments.
+- Always include these in the report.
+
+GROUP 2 — Market Leaders & Magnificent Seven (STRATEGIC WATCHLIST):
+- Includes: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, and any S&P 500 company with market cap > $200B.
+- Only report on these if there is a SIGNIFICANT event such as:
+  * Quarterly earnings reports
+  * Intraday price movement exceeding 5%
+  * Major regulatory changes or groundbreaking product launches
+  * Macro events affecting their specific sector
+- IGNORE generic market commentary or minor fluctuations for Group 2.
+
+REPORTING FORMAT:
+- Use bullet points for all summaries
+- Be concise and actionable
+- Focus on insights that affect investment decisions
+- ALWAYS deliver the final output in English
+
+FILTERING:
+- Skip noise and generic commentary for Group 2
+- Prioritize actionable insights
+- Clearly separate Group 1 and Group 2 sections in your response"""
 
 def get_watchlist():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{WATCHLIST_FILE}"
@@ -62,7 +91,16 @@ def send_telegram(message):
     })
     print(f"📤 Telegram send status: {r.status_code}", flush=True)
 
-def call_claude(messages):
+def call_claude(messages, system_prompt=None):
+    body = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 1024,
+        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        "messages": messages
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -70,29 +108,28 @@ def call_claude(messages):
             "anthropic-version": "2023-06-01",
             "content-type": "application/json"
         },
-        json={
-            "model": "claude-sonnet-4-5",
-            "max_tokens": 1024,
-            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-            "messages": messages
-        }
+        json=body
     )
     return response.json()
 
 def get_news_update(watchlist):
-    tickers = ", ".join(watchlist)
-    messages = [{
-        "role": "user",
-        "content": (
-            f"Search for the latest news today for these stocks: {tickers}. "
-            f"For each stock, give one short sentence about the most important recent news or development. "
-            f"Format as a simple list. Be very concise. Respond in English."
-        )
-    }]
+    # Build the strategic watchlist — Mag 7 stocks not already in portfolio
+    strategic = [t for t in MAGNIFICENT_SEVEN if t not in watchlist]
 
-    for _ in range(5):
-        data = call_claude(messages)
-        print(f"🤖 Claude response stop_reason: {data.get('stop_reason')}", flush=True)
+    user_prompt = (
+        f"Please search for and analyze the latest news for the following:\n\n"
+        f"GROUP 1 — My Personal Portfolio (analyze everything): {', '.join(watchlist)}\n\n"
+        f"GROUP 2 — Strategic Watchlist (only significant events): {', '.join(strategic)}\n\n"
+        f"Search for recent news for each ticker and provide your analysis "
+        f"following the reporting guidelines in your instructions. "
+        f"Respond entirely in English."
+    )
+
+    messages = [{"role": "user", "content": user_prompt}]
+
+    for _ in range(8):  # more iterations since we're searching more tickers
+        data = call_claude(messages, system_prompt=NEWS_SYSTEM_PROMPT)
+        print(f"🤖 Claude stop_reason: {data.get('stop_reason')}", flush=True)
         content_blocks = data.get("content", [])
 
         if data.get("stop_reason") == "end_turn":
@@ -116,7 +153,7 @@ def get_news_update(watchlist):
         if tool_results:
             messages.append({"role": "user", "content": tool_results})
 
-    return "Couldn't find news at the moment. Try again later."
+    return "Could not find news at the moment. Please try again later."
 
 @app.route("/")
 def home():
@@ -162,15 +199,22 @@ def webhook():
         send_telegram(f"📋 *Your current watchlist:*\n{', '.join(watchlist)}")
 
     elif command == "NEWS":
-        send_telegram("🔍 Searching for latest news, one moment...")
+        send_telegram("🔍 Searching for the latest news for your portfolio, one moment...")
         news = get_news_update(watchlist)
-        send_telegram(f"📰 *Latest News:*\n\n{news}")
+        # Split into chunks if too long for Telegram (4096 char limit)
+        if len(news) > 4000:
+            chunks = [news[i:i+4000] for i in range(0, len(news), 4000)]
+            send_telegram(f"📰 *News Update:*\n\n{chunks[0]}")
+            for chunk in chunks[1:]:
+                send_telegram(chunk)
+        else:
+            send_telegram(f"📰 *News Update:*\n\n{news}")
 
     elif command in ["HELP", "?"]:
         send_telegram(HELP_MESSAGE)
 
     else:
-        send_telegram("❓ Unknown command. Text *HELP* or *?* to see all available commands.")
+        send_telegram("❓ Unknown command. Send *HELP* או *?* for a list of all commands.")
 
     return "ok"
 
