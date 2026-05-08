@@ -21,10 +21,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'report' || github.event.schedule == '0 6 * * 1-5'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.11'
 
@@ -45,10 +45,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'fear_greed' || github.event.schedule == '0 14 * * 1-5' || github.event.schedule == '30 19 * * 1-5'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.11'
 
