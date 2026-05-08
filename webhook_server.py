@@ -19,6 +19,10 @@ WATCHLIST_FILE = "watchlist.json"
 
 MAGNIFICENT_SEVEN = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
+# Track processed update IDs to prevent double-processing
+processed_updates = set()
+news_in_progress = False
+
 HELP_MESSAGE = (
     "🤖 *Stock Agent — Commands*\n\n"
     "📋 *LIST* — see your current watchlist\n\n"
@@ -79,7 +83,7 @@ def run_claude_with_search(user_prompt, system_prompt):
             },
             json={
                 "model": "claude-sonnet-4-5",
-                "max_tokens": 800,
+                "max_tokens": 2000,
                 "system": system_prompt,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
@@ -179,8 +183,19 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    global news_in_progress
     data = request.json
     print(f"📩 Received: {json.dumps(data)}", flush=True)
+
+    # Deduplicate — ignore updates we've already processed
+    update_id = data.get("update_id")
+    if update_id in processed_updates:
+        print(f"⚠️ Duplicate update {update_id}, ignoring.", flush=True)
+        return "ok"
+    processed_updates.add(update_id)
+    # Keep set small
+    if len(processed_updates) > 100:
+        processed_updates.pop()
 
     msg = data.get("message", {})
     text = msg.get("text", "").strip().upper()
@@ -217,13 +232,19 @@ def webhook():
         send_telegram(f"📋 *Your current watchlist:*\n{', '.join(watchlist)}")
 
     elif command == "NEWS":
-        send_telegram("🔍 Searching for the latest news for your portfolio, one moment...")
-        news = get_news_update(watchlist)
-        # Split into chunks if too long for Telegram (4096 char limit)
-        chunks = [news[i:i+4000] for i in range(0, len(news), 4000)]
-        send_telegram(f"📰 *News Update:*\n\n{chunks[0]}")
-        for chunk in chunks[1:]:
-            send_telegram(chunk)
+        if news_in_progress:
+            send_telegram("⏳ Already fetching news, please wait...")
+        else:
+            news_in_progress = True
+            try:
+                send_telegram("🔍 Searching for the latest news for your portfolio, one moment...")
+                news = get_news_update(watchlist)
+                chunks = [news[i:i+4000] for i in range(0, len(news), 4000)]
+                send_telegram(f"📰 *News Update:*\n\n{chunks[0]}")
+                for chunk in chunks[1:]:
+                    send_telegram(chunk)
+            finally:
+                news_in_progress = False
 
     elif command in ["HELP", "?"]:
         send_telegram(HELP_MESSAGE)
