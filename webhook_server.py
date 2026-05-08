@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import base64
+import time
 import requests
 from flask import Flask, request
 
@@ -78,7 +79,7 @@ def run_claude_with_search(user_prompt, system_prompt):
             },
             json={
                 "model": "claude-sonnet-4-5",
-                "max_tokens": 1500,
+                "max_tokens": 800,
                 "system": system_prompt,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
@@ -153,6 +154,9 @@ def get_news_update(watchlist):
 
     print("🔍 Fetching portfolio news...", flush=True)
     portfolio_news = run_claude_with_search(portfolio_prompt, portfolio_system)
+
+    print("⏳ Waiting 30 seconds before next call to avoid rate limits...", flush=True)
+    time.sleep(30)
 
     print("🔍 Fetching strategic watchlist news...", flush=True)
     strategic_news = run_claude_with_search(strategic_prompt, strategic_system)
