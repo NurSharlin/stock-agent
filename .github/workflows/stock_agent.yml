@@ -2,11 +2,23 @@ name: Daily Stock Agent
 
 on:
   schedule:
-    - cron: '0 12 * * 1-5'   # Weekdays at 12:00 UTC (2pm Israel time)
+    - cron: '0 6 * * 1-5'    # Daily report at 9:00 AM Israel time
+    - cron: '0 14 * * 1-5'   # Fear & Greed check at 17:00 Israel time
+    - cron: '30 19 * * 1-5'  # Fear & Greed check at 22:30 Israel time
   workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: false
+        default: 'report'
+        type: choice
+        options:
+          - report
+          - fear_greed
 
 jobs:
-  run-agent:
+  daily-report:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'report' || github.event.schedule == '0 6 * * 1-5'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,5 +38,27 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-          LANGUAGE: "Hebrew"
+          LANGUAGE: "English"
         run: python stock_agent.py
+
+  fear-greed-check:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'fear_greed' || github.event.schedule == '0 14 * * 1-5' || github.event.schedule == '30 19 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Fear & Greed check
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: python fear_greed.py
