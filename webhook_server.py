@@ -16,6 +16,21 @@ GITHUB_REPO = os.environ["GITHUB_REPO"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 WATCHLIST_FILE = "watchlist.json"
 
+HELP_MESSAGE = (
+    "🤖 *Stock Agent — Commands*\n\n"
+    "📋 *LIST* — see your current watchlist\n\n"
+    "➕ *BUY AAPL* — add a stock to your watchlist\n"
+    "    _(also works with BOUGHT)_\n\n"
+    "➖ *SELL AAPL* — remove a stock from your watchlist\n"
+    "    _(also works with SOLD)_\n\n"
+    "📰 *NEWS* — get the latest news for your stocks\n\n"
+    "❓ *HELP* or *?* — show this message\n\n"
+    "━━━━━━━━━━━━━━━\n"
+    "🔔 *Automatic alerts:*\n"
+    "• 📈 Daily stock report every weekday morning\n"
+    "• 😱 Fear & Greed index alert when sentiment changes"
+)
+
 def get_watchlist():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{WATCHLIST_FILE}"
     headers = {"Authorization": f"token {MY_GITHUB_TOKEN}"}
@@ -48,7 +63,6 @@ def send_telegram(message):
     print(f"📤 Telegram send status: {r.status_code}", flush=True)
 
 def call_claude(messages):
-    """Call Claude API and return the full response data."""
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -66,37 +80,30 @@ def call_claude(messages):
     return response.json()
 
 def get_news_update(watchlist):
-    """Use Claude with web search in an agentic loop until it returns a final text answer."""
     tickers = ", ".join(watchlist)
     messages = [{
         "role": "user",
         "content": (
             f"Search for the latest news today for these stocks: {tickers}. "
             f"For each stock, give one short sentence about the most important recent news or development. "
-            f"Format as a simple list. Be very concise."
+            f"Format as a simple list. Be very concise. Respond in English."
         )
     }]
 
-    # Agentic loop — keep going until stop_reason is "end_turn" (no more tool calls)
-    for _ in range(5):  # max 5 iterations to avoid infinite loop
+    for _ in range(5):
         data = call_claude(messages)
         print(f"🤖 Claude response stop_reason: {data.get('stop_reason')}", flush=True)
-
         content_blocks = data.get("content", [])
 
-        # If Claude is done, extract and return the final text
         if data.get("stop_reason") == "end_turn":
             text = " ".join(
                 block["text"] for block in content_blocks
                 if block.get("type") == "text"
             )
-            return text if text else "There is no news."
+            return text if text else "No news found."
 
-        # Otherwise Claude used a tool — add its response to messages and continue
-        # Add assistant's response to message history
         messages.append({"role": "assistant", "content": content_blocks})
 
-        # Collect all tool results and add as a single user message
         tool_results = []
         for block in content_blocks:
             if block.get("type") == "tool_use":
@@ -109,7 +116,7 @@ def get_news_update(watchlist):
         if tool_results:
             messages.append({"role": "user", "content": tool_results})
 
-    return "I wasn't able to find any news right now..."
+    return "Couldn't find news at the moment. Try again later."
 
 @app.route("/")
 def home():
@@ -152,21 +159,18 @@ def webhook():
             send_telegram(f"ℹ️ *{ticker}* wasn't in your watchlist.")
 
     elif command == "LIST":
-        send_telegram(f"📋 Your current watchlist:\n{', '.join(watchlist)}")
+        send_telegram(f"📋 *Your current watchlist:*\n{', '.join(watchlist)}")
 
     elif command == "NEWS":
-        send_telegram("🔍 Hold on, searching for news...")
+        send_telegram("🔍 Searching for latest news, one moment...")
         news = get_news_update(watchlist)
-        send_telegram(f"📰 *News Update:*\n\n{news}")
+        send_telegram(f"📰 *Latest News:*\n\n{news}")
+
+    elif command in ["HELP", "?"]:
+        send_telegram(HELP_MESSAGE)
 
     else:
-        send_telegram(
-            "❓ Unknown command. Try:\n"
-            "*BUY AAPL* — add a stock\n"
-            "*SELL AAPL* — remove a stock\n"
-            "*LIST* — see your watchlist\n"
-            "*UPDATE* — get latest news for your stocks"
-        )
+        send_telegram("❓ Unknown command. Text *HELP* or *?* to see all available commands.")
 
     return "ok"
 
