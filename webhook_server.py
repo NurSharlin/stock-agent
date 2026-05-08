@@ -4,6 +4,7 @@ import json
 import base64
 import time
 import requests
+from datetime import datetime, timedelta
 from flask import Flask, request
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -15,13 +16,10 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MY_GITHUB_TOKEN = os.environ["MY_GITHUB_TOKEN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+FINNHUB_API_KEY = os.environ["FINNHUB_API_KEY"]
 WATCHLIST_FILE = "watchlist.json"
 
 MAGNIFICENT_SEVEN = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
-
-# Track processed update IDs to prevent double-processing
-processed_updates = set()
-news_in_progress = False
 
 HELP_MESSAGE = (
     "🤖 *Stock Agent — Commands*\n\n"
@@ -37,6 +35,10 @@ HELP_MESSAGE = (
     "• 📈 Daily stock report every weekday morning\n"
     "• 😱 Fear & Greed index alert when sentiment changes"
 )
+
+# Track processed update IDs to prevent double-processing
+processed_updates = set()
+news_in_progress = False
 
 def get_watchlist():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{WATCHLIST_FILE}"
@@ -69,111 +71,114 @@ def send_telegram(message):
     })
     print(f"📤 Telegram send status: {r.status_code}", flush=True)
 
-def run_claude_with_search(user_prompt, system_prompt):
-    """Run Claude with web search in an agentic loop. Returns final text."""
-    messages = [{"role": "user", "content": user_prompt}]
+def fetch_finnhub_news(ticker, days=3):
+    """Fetch recent news headlines for a ticker from Finnhub."""
+    to_date = datetime.today().strftime("%Y-%m-%d")
+    from_date = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    url = "https://finnhub.io/api/v1/company-news"
+    r = requests.get(url, params={
+        "symbol": ticker,
+        "from": from_date,
+        "to": to_date,
+        "token": FINNHUB_API_KEY
+    })
+    if r.status_code != 200:
+        print(f"⚠️ Finnhub error for {ticker}: {r.status_code}", flush=True)
+        return []
+    articles = r.json()
+    # Return top 5 headlines
+    return [a["headline"] for a in articles[:5] if a.get("headline")]
 
-    for i in range(8):
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            },
-            json={
-                "model": "claude-sonnet-4-5",
-                "max_tokens": 2000,
-                "system": system_prompt,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": messages
-            }
+def summarize_with_claude(news_data, is_portfolio=True):
+    """Send news headlines to Claude for summarization."""
+    if not news_data:
+        return None
+
+    if is_portfolio:
+        system = (
+            "You are a financial analyst. Summarize the latest news for the user's personal portfolio stocks. "
+            "For each stock, provide a concise bullet point summary of the key developments. "
+            "Even minor news matters. Be thorough but concise. Respond in English."
         )
+        user = "Here are the latest news headlines for my portfolio stocks. Please summarize the key points for each:\n\n"
+    else:
+        system = (
+            "You are a financial analyst. Review news headlines for major market stocks. "
+            "ONLY highlight significant events: earnings reports, price moves >5%, major regulatory changes, "
+            "groundbreaking product launches, or major sector macro events. "
+            "Skip stocks with no significant news. Use bullet points. Respond in English."
+        )
+        user = "Here are recent headlines for major market stocks. Only report on significant events:\n\n"
 
-        if response.status_code != 200:
-            print(f"❌ API error {response.status_code}: {response.text}", flush=True)
-            return None
-
-        data = response.json()
-        stop_reason = data.get("stop_reason")
-        content_blocks = data.get("content", [])
-        print(f"🔄 Iteration {i+1} stop_reason: {stop_reason}", flush=True)
-
-        if stop_reason == "end_turn":
-            text = " ".join(
-                block["text"] for block in content_blocks
-                if block.get("type") == "text"
-            )
-            return text if text.strip() else None
-
-        # Handle tool use
-        messages.append({"role": "assistant", "content": content_blocks})
-        tool_results = [
-            {
-                "type": "tool_result",
-                "tool_use_id": block["id"],
-                "content": block.get("content", "")
-            }
-            for block in content_blocks
-            if block.get("type") == "tool_use"
-        ]
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
+    for ticker, headlines in news_data.items():
+        if headlines:
+            user += f"*{ticker}*:\n"
+            for h in headlines:
+                user += f"  - {h}\n"
+            user += "\n"
         else:
-            print("⚠️ No tool results found, stopping.", flush=True)
-            break
+            user += f"*{ticker}*: No recent news found.\n\n"
 
-    return None
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        },
+        json={
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 1000,
+            "system": system,
+            "messages": [{"role": "user", "content": user}]
+        }
+    )
+
+    if response.status_code != 200:
+        print(f"❌ Claude API error {response.status_code}: {response.text}", flush=True)
+        return None
+
+    data = response.json()
+    text = " ".join(
+        block["text"] for block in data.get("content", [])
+        if block.get("type") == "text"
+    )
+    return text.strip() if text.strip() else None
 
 def get_news_update(watchlist):
     strategic = [t for t in MAGNIFICENT_SEVEN if t not in watchlist]
 
-    # --- Call 1: Portfolio news (detailed) ---
-    portfolio_prompt = (
-        f"Search for the latest news today for these stocks in my personal portfolio: {', '.join(watchlist)}. "
-        f"For EACH stock, provide a detailed bullet point summary of any news, earnings, price movements, or developments. "
-        f"Even minor news is important. Be thorough. Respond in English."
-    )
-    portfolio_system = (
-        "You are a financial analyst. The user wants detailed news for their personal portfolio stocks. "
-        "Search for recent news for each ticker and provide bullet point summaries. "
-        "Be thorough — even minor developments matter for personal holdings."
-    )
+    # Fetch news from Finnhub for all tickers
+    print("📡 Fetching news from Finnhub...", flush=True)
+    portfolio_news = {}
+    for ticker in watchlist:
+        print(f"  → {ticker}", flush=True)
+        portfolio_news[ticker] = fetch_finnhub_news(ticker)
+        time.sleep(0.5)  # Respect Finnhub rate limits (60 req/min on free tier)
 
-    # --- Call 2: Mag 7 significant events only ---
-    strategic_prompt = (
-        f"Search for today's news for these major market stocks: {', '.join(strategic)}. "
-        f"ONLY report if there is a SIGNIFICANT event such as: quarterly earnings, "
-        f"intraday price movement >5%, major regulatory changes, groundbreaking product launches, "
-        f"or major sector macro events. "
-        f"If there is no significant news for a stock, skip it entirely. "
-        f"Respond in English with bullet points."
-    )
-    strategic_system = (
-        "You are a financial analyst monitoring major market stocks. "
-        "Only report on significant events — earnings, >5% price moves, major regulatory/product news, or macro sector events. "
-        "Skip any stock with no significant news. Use bullet points."
-    )
+    strategic_news = {}
+    for ticker in strategic:
+        print(f"  → {ticker} (strategic)", flush=True)
+        strategic_news[ticker] = fetch_finnhub_news(ticker)
+        time.sleep(0.5)
 
-    print("🔍 Fetching portfolio news...", flush=True)
-    portfolio_news = run_claude_with_search(portfolio_prompt, portfolio_system)
+    # Summarize with Claude
+    print("🤖 Summarizing with Claude...", flush=True)
+    portfolio_summary = summarize_with_claude(portfolio_news, is_portfolio=True)
 
-    print("⏳ Waiting 30 seconds before next call to avoid rate limits...", flush=True)
-    time.sleep(30)
+    time.sleep(5)  # Small delay between Claude calls
 
-    print("🔍 Fetching strategic watchlist news...", flush=True)
-    strategic_news = run_claude_with_search(strategic_prompt, strategic_system)
+    strategic_summary = summarize_with_claude(strategic_news, is_portfolio=False)
 
     # Build final message
     result = ""
-    if portfolio_news:
-        result += f"*📊 Your Portfolio:*\n{portfolio_news}"
+    if portfolio_summary:
+        result += f"*📊 Your Portfolio:*\n{portfolio_summary}"
     else:
-        result += "*📊 Your Portfolio:*\nNo news found at the moment."
+        result += "*📊 Your Portfolio:*\nNo recent news found."
 
-    if strategic_news and strategic_news.strip():
-        result += f"\n\n*🌐 Market Leaders (Significant Events Only):*\n{strategic_news}"
+    if strategic_summary and strategic_summary.strip():
+        result += f"\n\n*🌐 Market Leaders (Significant Events Only):*\n{strategic_summary}"
 
     return result if result.strip() else "Could not find news at the moment. Please try again later."
 
@@ -193,7 +198,6 @@ def webhook():
         print(f"⚠️ Duplicate update {update_id}, ignoring.", flush=True)
         return "ok"
     processed_updates.add(update_id)
-    # Keep set small
     if len(processed_updates) > 100:
         processed_updates.pop()
 
@@ -237,7 +241,7 @@ def webhook():
         else:
             news_in_progress = True
             try:
-                send_telegram("🔍 Searching for the latest news for your portfolio, one moment...")
+                send_telegram("🔍 Fetching latest news from Finnhub, one moment...")
                 news = get_news_update(watchlist)
                 chunks = [news[i:i+4000] for i in range(0, len(news), 4000)]
                 send_telegram(f"📰 *News Update:*\n\n{chunks[0]}")
