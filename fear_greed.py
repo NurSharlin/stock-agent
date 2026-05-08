@@ -10,19 +10,21 @@ GITHUB_REPO = os.environ["GITHUB_REPO"]
 STATE_FILE = "fear_greed_state.json"
 
 CATEGORY_EMOJI = {
-    "Extreme Fear": "😱",
-    "Fear": "😨",
-    "Neutral": "😐",
-    "Greed": "🤑",
-    "Extreme Greed": "🚀"
+    "Extreme Fear": "??",
+    "Fear": "??",
+    "Neutral": "??",
+    "Greed": "??",
+    "Extreme Greed": "??"
 }
 
 def get_fear_greed():
-    """Fetch current Fear & Greed index from CNN API."""
-    r = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata")
+    """Fetch current Fear & Greed index from alternative.me API."""
+    r = requests.get("https://api.alternative.me/fng/?limit=1")
     data = r.json()
-    score = round(data["fear_and_greed"]["score"])
-    category = data["fear_and_greed"]["rating"].title()  # e.g. "extreme fear" -> "Extreme Fear"
+    entry = data["data"][0]
+    score = int(entry["value"])
+    # Convert their label to title case e.g. "Extreme Fear"
+    category = entry["value_classification"].title()
     return score, category
 
 def get_state():
@@ -73,9 +75,9 @@ if __name__ == "__main__":
         prev_emoji = CATEGORY_EMOJI.get(previous_category, "")
         curr_emoji = CATEGORY_EMOJI.get(current_category, "")
         message = (
-            f"🚨 *Fear & Greed Index Alert!*\n\n"
-            f"The market sentiment has shifted:\n\n"
-            f"{prev_emoji} *{previous_category}* → {curr_emoji} *{current_category}*\n\n"
+            f"?? *Fear & Greed Index Alert!*\n\n"
+            f"Market sentiment has shifted:\n\n"
+            f"{prev_emoji} *{previous_category}* ? {curr_emoji} *{current_category}*\n\n"
             f"Current score: *{score}/100*"
         )
         send_telegram(message)
@@ -83,4 +85,4 @@ if __name__ == "__main__":
         print(f"Category changed! Notified and saved.")
 
     else:
-        print(f"No change in category ({current_category}). No notification sent.")
+        print(f"No change ({current_category}, score: {score}). No notification sent.")
