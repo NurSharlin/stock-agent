@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 MY_GITHUB_TOKEN = os.environ["MY_GITHUB_TOKEN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
-LANGUAGE = os.environ.get("LANGUAGE", "Hebrew")
+LANGUAGE = os.environ.get("LANGUAGE", "English")
 WATCHLIST_FILE = "watchlist.json"
 
 def get_watchlist():
