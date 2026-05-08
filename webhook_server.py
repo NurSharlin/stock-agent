@@ -109,7 +109,7 @@ def get_news_update(watchlist):
         if tool_results:
             messages.append({"role": "user", "content": tool_results})
 
-    return "לא הצלחתי למצוא חדשות כרגע."
+    return "I wasn't able to find any news right now..."
 
 @app.route("/")
 def home():
@@ -154,7 +154,7 @@ def webhook():
     elif command == "LIST":
         send_telegram(f"📋 Your current watchlist:\n{', '.join(watchlist)}")
 
-    elif command == "UPDATE":
+    elif command == "NEWS":
         send_telegram("🔍 Hold on, searching for news...")
         news = get_news_update(watchlist)
         send_telegram(f"📰 *News Update:*\n\n{news}")
